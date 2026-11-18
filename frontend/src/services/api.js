@@ -21,10 +21,26 @@ export async function request(endpoint, options = {}) {
 
     try {
         const response = await fetch(url, config);
-        const data = await response.json();
+        const text = await response.text();
+
+        let data = {};
+        if (text && text.trim()) {
+            try {
+                data = JSON.parse(text);
+            } catch (parseErr) {
+                console.warn(`Non-JSON response from [${endpoint}]:`, text.slice(0, 200));
+                if (!response.ok) {
+                    throw new Error(`Server returned HTTP ${response.status}: ${text.slice(0, 150)}`);
+                }
+                throw new Error(`Invalid server response format (${parseErr.message})`);
+            }
+        } else if (!response.ok) {
+            throw new Error(`Server returned HTTP ${response.status} with empty response.`);
+        }
 
         if (!response.ok) {
-            throw new Error(data.error || `HTTP Error ${response.status}`);
+            const errorMessage = data.message || data.error || `HTTP Error ${response.status}`;
+            throw new Error(errorMessage);
         }
 
         return data;
@@ -66,5 +82,9 @@ export const api = {
 
     // Profile
     getProfile: () => request('/profile'),
-    updateProfile: (profileData) => request('/profile', { method: 'PUT', body: JSON.stringify(profileData) })
+    updateProfile: (profileData) => request('/profile', { method: 'PUT', body: JSON.stringify(profileData) }),
+
+    // AI Assistant
+    getAIStatus: () => request('/ai/status'),
+    chatWithAI: (message, context = {}) => request('/ai/chat', { method: 'POST', body: JSON.stringify({ message, context }) })
 };

@@ -57,7 +57,7 @@ export default function Practice() {
         }
 
         setDetectedResult(result);
-        const evalRes = evaluateSignAttempt(result.landmarks || [], targetSign.sign_name);
+        const evalRes = evaluateSignAttempt(result.landmarks || [], targetSign.sign_name, result.handedness);
         
         // Match if either dedicated sign evaluation is correct OR classifier directly matches
         const isMatch = evalRes.isCorrect || 

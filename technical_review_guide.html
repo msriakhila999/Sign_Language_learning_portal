@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SignBridge - Technical Architecture & Project Review Guide</title>
+<style>
+    @page {
+        size: A4;
+        margin: 18mm 16mm 18mm 16mm;
+        @bottom-right {
+            content: "Page " counter(page);
+            font-size: 9pt;
+            color: #64748b;
+        }
+    }
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        color: #0f172a;
+        background: #ffffff;
+        line-height: 1.55;
+        font-size: 10pt;
+        margin: 0;
+        padding: 0;
+    }
+    h1, h2, h3, h4 {
+        color: #0f172a;
+        font-weight: 800;
+        margin-top: 1.6em;
+        margin-bottom: 0.6em;
+        page-break-after: avoid;
+    }
+    h1 {
+        font-size: 22pt;
+        line-height: 1.2;
+        border-bottom: 3px solid #2563eb;
+        padding-bottom: 8px;
+        margin-top: 0;
+    }
+    h2 {
+        font-size: 14pt;
+        border-left: 4px solid #3b82f6;
+        padding-left: 10px;
+        margin-top: 24pt;
+        background: #f8fafc;
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+    h3 {
+        font-size: 11.5pt;
+        color: #1e293b;
+        margin-top: 14pt;
+    }
+    h4 {
+        font-size: 10.5pt;
+        color: #334155;
+        margin-top: 10pt;
+    }
+    p, li {
+        color: #334155;
+        font-size: 9.8pt;
+    }
+    ul, ol {
+        margin: 6px 0 12px 22px;
+        padding: 0;
+    }
+    li {
+        margin-bottom: 4px;
+    }
+    .header-banner {
+        text-align: center;
+        padding: 24px 16px;
+        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #4f46e5 100%);
+        color: white;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }
+    .header-banner h1 {
+        color: white;
+        border: none;
+        margin: 0;
+        font-size: 24pt;
+    }
+    .header-banner .subtitle {
+        font-size: 11.5pt;
+        opacity: 0.95;
+        margin-top: 6px;
+        font-weight: 500;
+    }
+    .header-banner .badge-row {
+        margin-top: 12px;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        font-size: 8pt;
+        font-weight: 700;
+        border-radius: 9999px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .badge-white { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); }
+    .badge-sdg { background: #e11d48; color: white; }
+    .badge-blue { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    .badge-green { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0 18px 0;
+        font-size: 9pt;
+        page-break-inside: avoid;
+    }
+    th, td {
+        border: 1px solid #cbd5e1;
+        padding: 7px 10px;
+        text-align: left;
+        vertical-align: top;
+    }
+    th {
+        background-color: #f1f5f9;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    tr:nth-child(even) td {
+        background-color: #f8fafc;
+    }
+
+    pre, code {
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 8.8pt;
+    }
+    pre {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 10px 14px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 10px 0 14px 0;
+        line-height: 1.45;
+        page-break-inside: avoid;
+    }
+    code.inline {
+        background: #f1f5f9;
+        color: #0f172a;
+        padding: 1.5px 5px;
+        border-radius: 4px;
+        border: 1px solid #e2e8f0;
+        font-weight: 600;
+    }
+
+    .callout {
+        border-left: 4px solid #2563eb;
+        background: #eff6ff;
+        padding: 10px 14px;
+        border-radius: 0 8px 8px 0;
+        margin: 12px 0;
+        page-break-inside: avoid;
+    }
+    .callout-title {
+        font-weight: 700;
+        color: #1e40af;
+        margin-bottom: 4px;
+        font-size: 9.5pt;
+    }
+    .callout-green {
+        border-left-color: #10b981;
+        background: #ecfdf5;
+    }
+    .callout-green .callout-title { color: #065f46; }
+    .callout-amber {
+        border-left-color: #f59e0b;
+        background: #fffbeb;
+    }
+    .callout-amber .callout-title { color: #92400e; }
+
+    .formula-box {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin: 10px 0;
+        font-family: "Times New Roman", Times, serif;
+        font-size: 11pt;
+        text-align: center;
+        page-break-inside: avoid;
+    }
+
+    .page-break {
+        page-break-before: always;
+    }
+
+    .qa-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+        page-break-inside: avoid;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .qa-q {
+        font-weight: 800;
+        color: #1e3a8a;
+        font-size: 10pt;
+        margin-bottom: 6px;
+    }
+    .qa-a {
+        color: #334155;
+        font-size: 9.3pt;
+        line-height: 1.5;
+    }
+    .footer-note {
+        margin-top: 30px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 10px;
+        text-align: center;
+        font-size: 8pt;
+        color: #94a3b8;
+    }
+</style>
+</head>
+<body>
+
+<div class="header-banner">
+    <h1>SignBridge Portal</h1>
+    <div class="subtitle">Complete Technical Architecture, Machine Learning Pipeline & Project Review Guide</div>
+    <div class="badge-row">
+        <span class="badge badge-white">React 19 &bull; Vite 6</span>
+        <span class="badge badge-white">Node.js Express REST</span>
+        <span class="badge badge-white">MySQL 8.0</span>
+        <span class="badge badge-white">MediaPipe Hands (21 3D Points)</span>
+        <span class="badge badge-white">Google Gemini 2.5 Flash</span>
+        <span class="badge badge-sdg">UN SDG 10: Reduced Inequalities</span>
+    </div>
+</div>
+
+<h2>1. Executive Summary & Problem Formulation</h2>
+<p>
+<strong>SignBridge</strong> is a production-ready, full-stack American Sign Language (ASL) learning, translation, and gamified practice ecosystem. The platform bridges the communication divide between the Deaf and Hard of Hearing (DHH) community and the hearing population, directly supporting <strong>United Nations Sustainable Development Goal 10 (Reduced Inequalities)</strong>.
+</p>
+<p>
+Traditional sign language translation systems suffer from three primary bottlenecks:
+</p>
+<ol>
+    <li><strong>Hardware Dependency:</strong> Requiring costly wearable sensory gloves or multi-depth cameras.</li>
+    <li><strong>High Latency & Cloud Transmission:</strong> Streaming uncompressed video frames to remote cloud servers creates bandwidth bottlenecks, latency spikes, and severe visual privacy violations.</li>
+    <li><strong>Lack of Real-Time Pedagogical Guidance:</strong> Conventional machine learning classifiers act as black boxes (simply displaying predicted sign names) without providing actionable biomechanical feedback to help learners correct individual finger curls or joint angles.</li>
+</ol>
+<p>
+<strong>The SignBridge Solution:</strong> We implement an edge-first computer vision pipeline executing directly in the client browser at 60 FPS using <strong>MediaPipe Hands</strong>. Spatial 3D coordinates are extracted on the user's device and evaluated via a deterministic biomechanical geometric classifier. Generative AI tutoring is securely proxied through an Express backend via <strong>Google Gemini 2.5 Flash</strong>, delivering real-time interactive posture corrections without exposing API credentials.
+</p>
+
+<h2>2. End-to-End System Architecture</h2>
+<p>
+SignBridge follows a decoupled, three-tier enterprise architectural pattern:
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Tier</th>
+            <th>Primary Technologies</th>
+            <th>Core Responsibilities</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Client Presentation Tier</strong></td>
+            <td>React 19, Vite 6, Tailwind CSS, MediaPipe Hands (v0.4), HTML5 Canvas 2D, Web Audio API</td>
+            <td>Webcam video ingestion, 60 FPS on-device hand landmark regression, interactive visual feedback, gamified time-attack engine, and UI state management.</td>
+        </tr>
+        <tr>
+            <td><strong>Application Server Tier</strong></td>
+            <td>Node.js, Express.js REST API, JWT Authentication, Bcrypt.js, Google Gen AI SDK / REST</td>
+            <td>Authentication & session validation, practice session recording, Gemini LLM server-side proxying, rate-limiting, and error fallback orchestration.</td>
+        </tr>
+        <tr>
+            <td><strong>Data Persistence Tier</strong></td>
+            <td>MySQL 8.0, <code>mysql2/promise</code> Connection Pool</td>
+            <td>Relational storage of users, sign vocabulary taxonomy, real-time practice attempts, user progress metrics, and audit logs.</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="callout">
+    <div class="callout-title">Architectural Highlights & Data Flow</div>
+    <p>
+    1. <strong>Zero-Server Video Ingestion:</strong> Raw webcam video pixels never leave the client's device. Frames are decoded locally by the browser GPU.<br>
+    2. <strong>Lightweight Payload Transmission:</strong> The client communicates with the Node.js backend strictly via lightweight JSON payloads (sign IDs, confidence ratings, and chat queries).<br>
+    3. <strong>Stateful Feature Governance:</strong> The platform incorporates a global <code>FeatureContext</code> with LocalStorage persistence, allowing users to toggle optional modules (SignBot AI and Sign Rush) on and off with zero background resource consumption when inactive.
+    </p>
+</div>
+
+<h2>3. Database Design & Relational Schema</h2>
+<p>
+The persistence layer utilizes a normalized MySQL relational schema enforcing foreign key integrity, cascading updates, and indexing on critical query paths:
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Table Name</th>
+            <th>Primary Key</th>
+            <th>Foreign Keys</th>
+            <th>Key Columns & Indexes</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><code>users</code></td>
+            <td><code>user_id</code></td>
+            <td>None</td>
+            <td><code>name</code>, <code>email</code> (UNIQUE, Indexed), <code>password_hash</code>, <code>created_at</code></td>
+        </tr>
+        <tr>
+            <td><code>categories</code></td>
+            <td><code>category_id</code></td>
+            <td>None</td>
+            <td><code>category_name</code> (UNIQUE: Greetings, Words, Phrases, Alphabet, Numbers), <code>description</code></td>
+        </tr>
+        <tr>
+            <td><code>signs</code></td>
+            <td><code>sign_id</code></td>
+            <td><code>category_id</code> &rarr; <code>categories(category_id)</code></td>
+            <td><code>sign_name</code> (Indexed), <code>meaning</code>, <code>description</code>, <code>instructions</code>, <code>image_url</code></td>
+        </tr>
+        <tr>
+            <td><code>practice_results</code></td>
+            <td><code>practice_id</code></td>
+            <td><code>user_id</code> &rarr; <code>users</code>, <code>sign_id</code> &rarr; <code>signs</code></td>
+            <td><code>detected_sign</code>, <code>confidence</code>, <code>is_correct</code> (TINYINT), <code>created_at</code> (Indexed)</td>
+        </tr>
+        <tr>
+            <td><code>translation_history</code></td>
+            <td><code>translation_id</code></td>
+            <td><code>user_id</code> &rarr; <code>users</code>, <code>sign_id</code> &rarr; <code>signs</code></td>
+            <td><code>detected_sign</code>, <code>confidence</code>, <code>translated_text</code>, <code>created_at</code></td>
+        </tr>
+        <tr>
+            <td><code>user_progress</code></td>
+            <td><code>progress_id</code></td>
+            <td><code>user_id</code> &rarr; <code>users</code>, <code>sign_id</code> &rarr; <code>signs</code></td>
+            <td><code>completed</code>, <code>accuracy</code>, <code>last_practiced</code> (UNIQUE KEY on <code>user_id, sign_id</code>)</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h2>4. Computer Vision & Machine Learning Pipeline</h2>
+<p>
+The sign recognition system utilizes a hybrid pipeline combining deep-learning keypoint regression with deterministic biomechanical geometry.
+</p>
+
+<h3>4.1 MediaPipe Hands: Two-Stage Deep Learning Architecture</h3>
+<ol>
+    <li><strong>BlazePalm Detector:</strong> A single-shot detector optimized for mobile and web architectures. It detects hand presence and estimates oriented bounding boxes across the entire video frame with $O(1)$ scale invariance.</li>
+    <li><strong>Hand Landmark Model:</strong> A convolutional neural network regressor operating on the cropped hand region. It predicts exact 3D coordinates for <strong>21 key anatomical landmarks</strong> per hand:</li>
+</ol>
+
+<pre>
+MediaPipe 21 Hand Landmarks Map:
+  [0] Wrist
+  [1-4]   Thumb  : CMC(1) -> MCP(2) -> IP(3)  -> TIP(4)
+  [5-8]   Index  : MCP(5) -> PIP(6) -> DIP(7) -> TIP(8)
+  [9-12]  Middle : MCP(9) -> PIP(10)-> DIP(11)-> TIP(12)
+  [13-16] Ring   : MCP(13)-> PIP(14)-> DIP(15)-> TIP(16)
+  [17-20] Pinky  : MCP(17)-> PIP(18)-> DIP(19)-> TIP(20)
+</pre>
+
+<h3>4.2 Scale and Distance Normalization (Palm Scale Invariance)</h3>
+<p>
+To ensure gestures are classified accurately regardless of whether a user stands close to the camera or far away, every distance is normalized by the physiological <strong>Palm Scale Factor ($S_{palm}$)</strong>, defined as the Euclidean distance between the Wrist ($L_0$) and the Middle Finger Knuckle ($L_9$):
+</p>
+
+<div class="formula-box">
+    $$S_{palm} = |ec{P}_{L9} - ec{P}_{L0}| = sqrt{(x_9 - x_0)^2 + (y_9 - y_0)^2 + (z_9 - z_0)^2}$$
+    $$d_{normalized}(A, B) = rac{|ec{P}_A - ec{P}_B|}{S_{palm}}$$
+</div>
+
+<h3>4.3 Biomechanical 3D Joint Angle Calculation</h3>
+<p>
+Rather than relying solely on raw $(x,y)$ coordinates, the engine computes 3D angular flexion at Proximal Interphalangeal (PIP) and Distal Interphalangeal (DIP) joints using vector dot products:
+</p>
+
+<div class="formula-box">
+    $$ec{u} = ec{P}_{MCP} - ec{P}_{PIP}, quad ec{v} = ec{P}_{TIP} - ec{P}_{PIP}$$
+    $$cos(	heta) = rac{ec{u} cdot ec{v}}{|ec{u}| |ec{v}|}, quad 	heta = arccosleft(	ext{clamp}left(cos(	heta), -1, 1ight)ight) 	imes rac{180^circ}{pi}$$
+</div>
+
+<ul>
+    <li><strong>Fully Extended Finger:</strong> $	heta in [140^circ, 180^circ]$ with normalized tip distance $rac{|ec{P}_{TIP} - ec{P}_{Wrist}|}{S_{palm}} > 1.05$.</li>
+    <li><strong>Curled Finger (Fist):</strong> $	heta < 112^circ$ or normalized tip-to-knuckle distance $< 0.50$.</li>
+    <li><strong>Curved Finger (Arc):</strong> $100^circ le 	heta le 138^circ$ (characteristic of the letter 'C' and numbers).</li>
+</ul>
+
+<h3>4.4 Gesture Classification Rules & Verification</h3>
+<p>
+The classifier matches biomechanical feature vectors against formal American Sign Language definitions:
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Sign Name</th>
+            <th>Thumb State</th>
+            <th>Index Finger</th>
+            <th>Middle Finger</th>
+            <th>Ring Finger</th>
+            <th>Pinky Finger</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Hello</strong></td>
+            <td>Extended sideways</td>
+            <td>Extended straight ($>140^circ$)</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+        </tr>
+        <tr>
+            <td><strong>Water ('W')</strong></td>
+            <td>Folded over pinky</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+            <td>Curled into palm</td>
+        </tr>
+        <tr>
+            <td><strong>Yes</strong></td>
+            <td>Curled against index</td>
+            <td>Curled (Fist)</td>
+            <td>Curled (Fist)</td>
+            <td>Curled (Fist)</td>
+            <td>Curled (Fist)</td>
+        </tr>
+        <tr>
+            <td><strong>No</strong></td>
+            <td>Pinching index & middle</td>
+            <td>Pinching thumb ($d < 0.28$)</td>
+            <td>Pinching thumb ($d < 0.28$)</td>
+            <td>Curled into palm</td>
+            <td>Curled into palm</td>
+        </tr>
+        <tr>
+            <td><strong>Letter A</strong></td>
+            <td>Extended upright beside index</td>
+            <td>Curled into fist</td>
+            <td>Curled into fist</td>
+            <td>Curled into fist</td>
+            <td>Curled into fist</td>
+        </tr>
+        <tr>
+            <td><strong>Letter B</strong></td>
+            <td>Tucked across palm</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+            <td>Extended straight</td>
+        </tr>
+        <tr>
+            <td><strong>Number 1</strong></td>
+            <td>Folded over fingers</td>
+            <td>Extended upright ($>140^circ$)</td>
+            <td>Curled into palm</td>
+            <td>Curled into palm</td>
+            <td>Curled into palm</td>
+        </tr>
+        <tr>
+            <td><strong>Number 2</strong></td>
+            <td>Folded over ring finger</td>
+            <td>Extended upright (V-shape)</td>
+            <td>Extended upright (V-shape)</td>
+            <td>Curled into palm</td>
+            <td>Curled into palm</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>4.5 Temporal Smoothing Filter (Jitter Removal)</h3>
+<p>
+Raw webcam landmark outputs can exhibit high-frequency frame jitter due to lighting or camera sensor noise. The <code>HandDetectionEngine</code> implements a temporal consensus buffer ($N = 3$ frames). A sign is only confirmed when the modal prediction frequency satisfies:
+</p>
+<div class="formula-box">
+    $$	ext{P}_{	ext{confirmed}} = argmax_{c} sum_{i=1}^{N} mathbb{I}(p_i = c) quad 	ext{subject to} quad rac{	ext{Count}(c)}{N} ge 0.66$$
+</div>
+
+<div class="page-break"></div>
+
+<h2>5. AI Assistant (SignBot) & Google Gemini Integration</h2>
+
+<h3>5.1 API Key Security & Architectural Boundary</h3>
+<p>
+<strong>Crucial Security Rule:</strong> API keys must NEVER be bundled into frontend JavaScript files where client inspection or decompilation can expose credentials.
+</p>
+
+<div class="callout callout-green">
+    <div class="callout-title">Secure Server-Side Proxy Design Pattern</div>
+    <p>
+    1. <strong>Backend Storage:</strong> The API key is stored exclusively inside <code>backend/.env</code> as <code>GEMINI_API_KEY</code>, loaded into memory via <code>dotenv</code>.<br>
+    2. <strong>Client Call:</strong> The frontend client issues an HTTP POST request to <code>/api/ai/chat</code> containing only the user prompt and context.<br>
+    3. <strong>Authenticated Dispatch:</strong> The Express controller attaches the server-side API key and calls Google's REST endpoint via secure HTTPS.<br>
+    4. <strong>Sanitized Output:</strong> The response is parsed, sanitized, and returned as clean JSON to the client.
+    </p>
+</div>
+
+<h3>5.2 Model Selection & Graceful Fallback Cascade</h3>
+<p>
+SignBridge leverages <strong>Google Gemini 2.5 Flash</strong> (<code>gemini-2.5-flash</code>), providing state-of-the-art reasoning, sub-second latency, and native structured formatting at low computational cost.
+</p>
+<p>
+To ensure 100% platform uptime during academic reviews or external API outages, the backend controller implements a multi-tier fallback cascade:
+</p>
+
+<pre>
+Client Request
+      &darr;
+[Tier 1] Google Gemini 2.5 Flash (Primary model: fast, nuanced ASL pedagogy)
+      &darr; (if HTTP 404 or regional model restriction)
+[Tier 2] Google Gemini 2.5 Flash Lite (Lightweight alternative)
+      &darr; (if unavailable)
+[Tier 3] Google Gemini 1.5 Flash (Legacy stable endpoint)
+      &darr; (if network offline or API quota exceeded)
+[Tier 4] Embedded Local Knowledge Engine (Deterministic, zero-network fallback)
+</pre>
+
+<h3>5.3 Pedagogical Persona & Grounding System Prompt</h3>
+<p>
+SignBot is strictly grounded with a comprehensive ASL domain model. It avoids hallucinations by referencing the exact 21 supported signs in SignBridge, guiding students through finger placement, hand orientations, and common signing mistakes.
+</p>
+
+<h2>6. Gamification Engine: "Sign Rush" (Time-Attack Game)</h2>
+<p>
+The gamification engine combines reinforcement learning principles with speed-recognition drills to enhance learner retention:
+</p>
+
+<ul>
+    <li><strong>Challenge Modes:</strong> 30-Second Blitz (sprint challenge) and 60-Second Marathon (endurance test).</li>
+    <li><strong>Vocabulary Filtering:</strong> Dynamic selection between Alphabets & Numbers, Everyday Signs, or Full Catalog.</li>
+    <li><strong>Dynamic Streak Multiplier:</strong>
+        <div class="formula-box">
+            $$	ext{Points} = left( 100 + 	ext{RemainingTime} 	imes 5 ight) 	imes M_{	ext{streak}}$$
+            $$M_{	ext{streak}} = egin{cases} 
+            1.0	imes & 	ext{streak} < 3 \ 
+            1.5	imes & 3 le 	ext{streak} < 5 \ 
+            2.0	imes & 5 le 	ext{streak} < 7 \ 
+            3.0	imes & 	ext{streak} ge 7 
+            end{cases}$$
+        </div>
+    </li>
+    <li><strong>Web Audio API Synthesizer:</strong> Generates synthetic sound waves (sine, triangle, and square waveforms) dynamically in real-time, requiring zero external MP3/WAV audio assets.</li>
+    <li><strong>Resource Isolation:</strong> The camera and computer vision loop are mounted strictly while <code>gameState === 'PLAYING'</code> and torn down completely upon game completion to conserve hardware resources.</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>7. Comprehensive Viva Voce / Project Review Defense Q&A</h2>
+<p>
+Below are the most critical technical questions commonly asked by university project evaluators, along with authoritative, high-scoring responses:
+</p>
+
+<div class="qa-card">
+    <div class="qa-q">Q1. Why did you choose MediaPipe Hands over training a custom CNN or YOLO model from scratch?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> Training a custom Convolutional Neural Network (CNN) directly on RGB pixels introduces three major drawbacks:
+        <br>1. <strong>Lighting & Skin Tone Bias:</strong> Pixel-based CNNs overfit to specific background illumination and skin pigmentation. MediaPipe abstracts the hand into 21 geometric 3D coordinate points, providing lighting and skin-tone invariance.
+        <br>2. <strong>Client-Side Execution (Edge Computing):</strong> MediaPipe executes via WebAssembly/GPU acceleration directly in the user's browser at 60 FPS, eliminating costly GPU server hosting.
+        <br>3. <strong>Data Privacy:</strong> Video frames never leave the user's computer, fulfilling stringent data protection standards.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q2. How does the system handle scale, distance, and hand orientation variance?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> We implement <strong>Palm-Scale Normalization</strong>. We compute the 3D Euclidean distance between the wrist ($L_0$) and the middle finger metacarpophalangeal joint ($L_9$) as the physiological base palm scale $S_{palm}$. All spatial distances between fingertips and knuckles are divided by $S_{palm}$. Furthermore, we calculate 3D joint flexion angles using vector dot products, which are mathematically scale-invariant by definition.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q3. How is the Gemini API Key secured in your application?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> We strictly follow the <strong>Server-Side Proxy Architecture</strong>. The client application has zero knowledge of the API key. The key resides inside <code>backend/.env</code> on the server. The client sends chat queries to our Express backend route (<code>/api/ai/chat</code>). The backend attaches the key in an authenticated HTTPS call to Google's API, validates the response, and forwards the response to the user.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q4. What happens if the user's internet connection drops or the Gemini API hits a rate limit?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> We engineered a 4-tier resilience fallback. If Google's endpoint returns HTTP 404, 429 (rate limit), or if network connectivity is lost, our backend automatically catches the exception and falls back to our embedded <strong>Deterministic ASL Rule Engine</strong>. This ensures the user receives an accurate, pedagogical answer without the portal crashing.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q5. How do you prevent webcam hardware conflicts between the Translate, Practice, and Sign Rush modules?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> We designed a unified <code>CameraBox</code> component adhering to strict React lifecycle hooks. Whenever a user navigates away or switches tabs, the <code>useEffect</code> cleanup function explicitly invokes <code>stream.getTracks().forEach(track => track.stop())</code>, releases the hardware lock, and cancels active <code>requestAnimationFrame</code> loops, preventing resource contention.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q6. What is the role of the Feature Activation System in your architecture?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> In academic and commercial evaluation, modularity is essential. We implemented a centralized <code>FeatureContext</code> with LocalStorage persistence. Advanced features like SignBot AI and the Sign Rush game are OFF by default. They can be toggled independently without affecting existing modules. When turned off, zero background CPU/memory resources are consumed.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q7. What was the root cause of the blank white screen on the Sign Rush route, and how did you resolve it?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> The white screen was caused by an uncaught <code>ReferenceError: openSettingsModal is not defined</code> inside <code>SignRushActive</code>. In React 19, an uncaught rendering exception in any component unmounts the entire root DOM tree if no Error Boundary exists. We resolved this by: (1) supplying <code>openSettingsModal</code> directly through <code>useFeatures()</code> in the active component, (2) hoisting helper functions outside the component to prevent Temporal Dead Zone errors, and (3) wrapping application routes in a custom <code>ErrorBoundary</code> component to display a recovery banner rather than crashing.
+    </div>
+</div>
+
+<div class="qa-card">
+    <div class="qa-q">Q8. How does SignBridge relate to United Nations SDG 10 (Reduced Inequalities)?</div>
+    <div class="qa-a">
+        <strong>Answer:</strong> SignBridge reduces educational, vocational, and social inequalities for Deaf and Hard of Hearing individuals by providing a free, browser-accessible platform that translates ASL in real-time and enables hearing peers, teachers, and employers to learn and practice sign language with objective biomechanical feedback.
+    </div>
+</div>
+
+<div class="footer-note">
+    SignBridge &bull; Final Year Capstone Project Review Documentation &bull; Generated November 2026
+</div>
+
+</body>
+</html>

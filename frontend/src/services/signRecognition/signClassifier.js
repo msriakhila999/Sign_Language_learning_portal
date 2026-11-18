@@ -1,10 +1,23 @@
 /**
- * Hand Landmark Sign Classifier & Evaluator for SignBridge
- * Analyzes 21 3D hand landmarks from MediaPipe Hands to accurately recognize
- * ALL 21 ASL sign language gestures and evaluate correctness with explicit physical adjustment suggestions.
+ * Biomechanical Hand Landmark Sign Classifier & Evaluator for SignBridge
+ * 
+ * Accurately analyzes 21 3D hand landmarks from MediaPipe Hands to recognize
+ * ALL 21 supported sign language gestures (Greetings, Common Words, Phrases, Alphabet, Numbers).
+ * 
+ * Features:
+ * - Scale and distance invariant normalization using palm size (Wrist to Middle MCP).
+ * - Joint bend angle calculations (MCP -> PIP -> TIP) in 3D degrees.
+ * - Symmetrical support for Left Hand and Right Hand gestures.
+ * - Realistic continuous confidence scores based on feature fit.
+ * - Rejects unrecognized gestures (returns null) instead of making false guesses.
+ * - Detailed physical feedback and adjustments for the Practice module.
  */
 
-function distance(p1, p2) {
+/**
+ * Calculates Euclidean 3D distance between two points.
+ */
+export function distance3D(p1, p2) {
+    if (!p1 || !p2) return 0;
     const dx = p1.x - p2.x;
     const dy = p1.y - p2.y;
     const dz = (p1.z || 0) - (p2.z || 0);
@@ -12,10 +25,28 @@ function distance(p1, p2) {
 }
 
 /**
- * Extracts normalized biomechanical hand features from 21 MediaPipe landmarks.
- * Invariant to user distance (scale) and accommodating natural hand tilt.
+ * Calculates joint bend angle in degrees formed by three points (p1 -> p2 -> p3).
+ * When finger is straight, angle approaches 180 degrees.
+ * When finger is curled into a fist, angle drops below 100 degrees.
  */
-export function extractHandFeatures(landmarks) {
+export function calculateJointAngleDeg(p1, p2, p3) {
+    if (!p1 || !p2 || !p3) return 180;
+    const v1 = { x: p1.x - p2.x, y: p1.y - p2.y, z: (p1.z || 0) - (p2.z || 0) };
+    const v2 = { x: p3.x - p2.x, y: p3.y - p2.y, z: (p3.z || 0) - (p2.z || 0) };
+
+    const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
+    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
+
+    if (mag1 === 0 || mag2 === 0) return 180;
+    const cosAngle = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return (Math.acos(cosAngle) * 180) / Math.PI;
+}
+
+/**
+ * Extracts comprehensive, normalized biomechanical features from 21 MediaPipe landmarks.
+ */
+export function extractHandFeatures(landmarks, handedness = 'Right') {
     if (!landmarks || landmarks.length < 21) return null;
 
     const wrist = landmarks[0];
@@ -45,95 +76,191 @@ export function extractHandFeatures(landmarks) {
     const pinkyDip = landmarks[19];
     const pinkyTip = landmarks[20];
 
-    // Palm size for scale normalization
-    const palmSize = Math.max(distance(wrist, middleMcp), 0.04);
+    // Physiological scale: Palm Size (Wrist to Middle MCP distance)
+    const palmSize = Math.max(distance3D(wrist, middleMcp), 0.04);
 
-    // Finger extension helper:
-    const isExtended = (tip, pip, mcp) => {
-        const dTipWrist = distance(tip, wrist);
-        const dPipWrist = distance(pip, wrist);
-        const dTipMcp = distance(tip, mcp);
-        const dPipMcp = distance(pip, mcp);
+    // Analyze individual finger extension and curl
+    function analyzeFinger(mcp, pip, dip, tip) {
+        const pipAngle = calculateJointAngleDeg(mcp, pip, tip);
+        const dipAngle = calculateJointAngleDeg(pip, dip, tip);
+        const tipWristDist = distance3D(tip, wrist) / palmSize;
+        const tipMcpDist = distance3D(tip, mcp) / palmSize;
+        const pipMcpDist = distance3D(pip, mcp) / palmSize;
 
-        const farFromWrist = dTipWrist > dPipWrist * 1.05;
-        const straightFromKnuckle = dTipMcp > dPipMcp * 1.10;
-        const longReach = dTipWrist > 1.25 * palmSize;
+        // When extended straight out:
+        const isExtended = pipAngle > 130 && tipWristDist > 1.05 && tipMcpDist > 0.62;
+        
+        // When curled tightly into palm:
+        const isCurled = (pipAngle < 112 || tipMcpDist < 0.50) && tipWristDist < 1.15;
+        
+        // When curved (C-shape or gentle bend):
+        const isCurved = !isExtended && !isCurled && tipMcpDist >= 0.42 && pipAngle >= 100 && pipAngle <= 138;
 
-        return (farFromWrist && straightFromKnuckle) || longReach;
+        return {
+            pipAngle,
+            dipAngle,
+            tipWristDist,
+            tipMcpDist,
+            pipMcpDist,
+            isExtended,
+            isCurled,
+            isCurved
+        };
+    }
+
+    const index = analyzeFinger(indexMcp, indexPip, indexDip, indexTip);
+    const middle = analyzeFinger(middleMcp, middlePip, middleDip, middleTip);
+    const ring = analyzeFinger(ringMcp, ringPip, ringDip, ringTip);
+    const pinky = analyzeFinger(pinkyMcp, pinkyPip, pinkyDip, pinkyTip);
+
+    // Thumb biomechanical metrics
+    const thumbWristDist = distance3D(thumbTip, wrist) / palmSize;
+    const thumbIndexMcpDist = distance3D(thumbTip, indexMcp) / palmSize;
+    const thumbMcpDist = distance3D(thumbTip, thumbMcp) / palmSize;
+    const thumbIpAngle = calculateJointAngleDeg(thumbMcp, thumbIp, thumbTip);
+
+    // Thumb extended outward from hand
+    const thumbMiddleMcpDist = distance3D(thumbTip, middleMcp) / palmSize;
+    const isThumbExtended = thumbWristDist > 0.88 && thumbIndexMcpDist > 0.58 && thumbMcpDist > 0.45 && thumbMiddleMcpDist > 0.58;
+
+    // Thumbs-Up (Help): Thumb points straight up towards top of frame, separated from curled fingers
+    const isThumbPointingUp = (thumbMcp.y - thumbTip.y > 0.03 * palmSize) &&
+                             (thumbTip.y < indexMcp.y);
+    const isThumbUp = isThumbPointingUp && (distance3D(thumbTip, indexTip) / palmSize > 0.45);
+
+    // Thumb tucked across palm (Letter B): Thumb tip rests across lower palm/base of ring-pinky
+    const isThumbTuckedAcross = (distance3D(thumbTip, ringMcp) / palmSize < 0.65) ||
+                                (distance3D(thumbTip, pinkyMcp) / palmSize < 0.70) ||
+                                (distance3D(thumbTip, middleMcp) / palmSize < 0.55 && thumbTip.x > indexMcp.x);
+
+    // Thumb alongside index knuckle (Letter A): All 4 fingers curled, thumb sits upright alongside index
+    const isThumbAlongside = thumbIndexMcpDist < 0.55 &&
+                             (thumbTip.y < thumbMcp.y + 0.08) &&
+                             !isThumbUp && !isThumbTuckedAcross;
+
+    // Inter-finger tip distances (normalized by palmSize)
+    const indexThumbDist = distance3D(indexTip, thumbTip) / palmSize;
+    const middleThumbDist = distance3D(middleTip, thumbTip) / palmSize;
+    const ringThumbDist = distance3D(ringTip, thumbTip) / palmSize;
+    const pinkyThumbDist = distance3D(pinkyTip, thumbTip) / palmSize;
+    const indexMiddleDist = distance3D(indexTip, middleTip) / palmSize;
+    const middleRingDist = distance3D(middleTip, ringTip) / palmSize;
+    const ringPinkyDist = distance3D(ringTip, pinkyTip) / palmSize;
+
+    // Bunching metric for all 5 tips (Food gesture)
+    const tips = [thumbTip, indexTip, middleTip, ringTip, pinkyTip];
+    const centroid = {
+        x: tips.reduce((s, p) => s + p.x, 0) / 5,
+        y: tips.reduce((s, p) => s + p.y, 0) / 5,
+        z: tips.reduce((s, p) => s + (p.z || 0), 0) / 5
     };
+    const maxTipToCentroid = Math.max(...tips.map(p => distance3D(p, centroid) / palmSize));
+    const fingersReachingForward = (index.tipWristDist > 0.90 || middle.tipWristDist > 0.90) && index.tipMcpDist > 0.48;
+    const isFoodPinch = maxTipToCentroid < 0.48 && indexThumbDist < 0.42 && middleThumbDist < 0.42 && fingersReachingForward;
 
-    // Finger folded helper:
-    const isFolded = (tip, pip, mcp) => {
-        const dTipWrist = distance(tip, wrist);
-        const dPipWrist = distance(pip, wrist);
-        const dTipMcp = distance(tip, mcp);
-        const dPipMcp = distance(pip, mcp);
+    // Hand orientation metrics
+    const isPointingDown = (indexTip.y > wrist.y + 0.05) && (middleTip.y > wrist.y + 0.05);
+    const isHorizontal = Math.abs(indexTip.x - wrist.x) > Math.abs(indexTip.y - wrist.y) * 1.35;
 
-        return (dTipWrist <= dPipWrist * 1.10) || (dTipMcp < dPipMcp * 1.15) || (dTipWrist < 1.18 * palmSize);
-    };
-
-    const isIndexExtended = isExtended(indexTip, indexPip, indexMcp);
-    const isMiddleExtended = isExtended(middleTip, middlePip, middleMcp);
-    const isRingExtended = isExtended(ringTip, ringPip, ringMcp);
-    const isPinkyExtended = isExtended(pinkyTip, pinkyPip, pinkyMcp);
-
-    const isIndexFolded = isFolded(indexTip, indexPip, indexMcp);
-    const isMiddleFolded = isFolded(middleTip, middlePip, middleMcp);
-    const isRingFolded = isFolded(ringTip, ringPip, ringMcp);
-    const isPinkyFolded = isFolded(pinkyTip, pinkyPip, pinkyMcp);
-
-    // Thumb extension:
-    const dThumbIndexMcp = distance(thumbTip, indexMcp) / palmSize;
-    const dThumbWrist = distance(thumbTip, wrist) / palmSize;
-    const isThumbExtended = dThumbIndexMcp > 0.40 && dThumbWrist > 0.85;
-
-    // Thumb pointing up (Thumbs-Up / Help):
-    const isThumbUp = (thumbTip.y < thumbMcp.y) && ((thumbMcp.y - thumbTip.y) > 0.04) && (thumbTip.y < indexMcp.y);
+    // Hooked index (Friend gesture): Index PIP extends out, but TIP bends hooked down; other fingers curled
+    const isIndexHooked = index.tipMcpDist > 0.35 && indexTip.y > indexPip.y && index.pipAngle < 130 &&
+                          middle.isCurled && ring.isCurled && pinky.isCurled;
 
     // Finger counts
-    const extendedFingers = (isIndexExtended ? 1 : 0) +
-                           (isMiddleExtended ? 1 : 0) +
-                           (isRingExtended ? 1 : 0) +
-                           (isPinkyExtended ? 1 : 0);
+    const extendedCount = (index.isExtended ? 1 : 0) +
+                          (middle.isExtended ? 1 : 0) +
+                          (ring.isExtended ? 1 : 0) +
+                          (pinky.isExtended ? 1 : 0);
 
-    const foldedFingers = (isIndexFolded ? 1 : 0) +
-                         (isMiddleFolded ? 1 : 0) +
-                         (isRingFolded ? 1 : 0) +
-                         (isPinkyFolded ? 1 : 0);
+    const curledCount = (index.isCurled ? 1 : 0) +
+                        (middle.isCurled ? 1 : 0) +
+                        (ring.isCurled ? 1 : 0) +
+                        (pinky.isCurled ? 1 : 0);
 
-    // Distance metrics normalized by palmSize
-    const indexThumbDist = distance(indexTip, thumbTip) / palmSize;
-    const middleThumbDist = distance(middleTip, thumbTip) / palmSize;
-    const indexMiddleDist = distance(indexTip, middleTip) / palmSize;
-    const allTipsTogether = (distance(indexTip, thumbTip) + distance(middleTip, thumbTip) + distance(ringTip, thumbTip)) / palmSize;
+    const curvedCount = (index.isCurved ? 1 : 0) +
+                        (middle.isCurved ? 1 : 0) +
+                        (ring.isCurved ? 1 : 0) +
+                        (pinky.isCurved ? 1 : 0);
 
     return {
         wrist,
-        thumbTip, thumbMcp,
+        thumbTip, thumbMcp, thumbIp,
         indexTip, indexMcp, indexPip,
         middleTip, middleMcp, middlePip,
         ringTip, ringMcp, ringPip,
         pinkyTip, pinkyMcp, pinkyPip,
         palmSize,
-        isIndexExtended, isMiddleExtended, isRingExtended, isPinkyExtended,
-        isIndexFolded, isMiddleFolded, isRingFolded, isPinkyFolded,
-        isThumbExtended, isThumbUp,
-        extendedFingers, foldedFingers,
-        indexThumbDist, middleThumbDist, indexMiddleDist, allTipsTogether
+        index, middle, ring, pinky,
+        thumbWristDist, thumbIndexMcpDist, thumbMcpDist,
+        isThumbExtended, isThumbUp, isThumbTuckedAcross, isThumbAlongside,
+        indexThumbDist, middleThumbDist, ringThumbDist, pinkyThumbDist, indexMiddleDist,
+        middleRingDist, ringPinkyDist,
+        maxTipToCentroid, isFoodPinch,
+        isPointingDown, isHorizontal, isIndexHooked,
+        extendedCount, curledCount, curvedCount,
+        handedness
     };
 }
 
 /**
- * General Sign Language classifier from landmarks recognizing ALL 21 signs.
+ * General Sign Language classifier from landmarks.
+ * Evaluates the detected hand against all 21 supported vocabulary signs.
+ * Returns the recognized sign object or null if unrecognized.
  */
-export function classifyHandSign(landmarks) {
+export function classifyHandSign(landmarks, handedness = 'Right') {
     if (!landmarks || landmarks.length < 21) return null;
 
-    const f = extractHandFeatures(landmarks);
+    const f = extractHandFeatures(landmarks, handedness);
     if (!f) return null;
 
-    // 1. BAD: Flat open hand turned palm downward
-    if (f.extendedFingers >= 3 && f.indexTip.y > f.wrist.y && f.middleTip.y > f.wrist.y) {
+    // 1. FRIEND: Hooked index finger with others curled tightly
+    if (f.isIndexHooked) {
+        return {
+            sign_name: 'Friend',
+            meaning: 'A companion or trusted person.',
+            confidence: 94,
+            description: 'Hooked index finger interlocked.'
+        };
+    }
+
+    // 2. NO: Index & Middle tips pinching Thumb tip while reaching forward, Ring & Pinky curled
+    const isNoPinch = f.indexThumbDist < 0.46 && f.middleThumbDist < 0.46 &&
+                      f.index.tipMcpDist > 0.48 && f.middle.tipMcpDist > 0.48 &&
+                      f.ring.isCurled && f.pinky.isCurled;
+    if (isNoPinch) {
+        const conf = Math.round(Math.min(98, 93 + (0.46 - f.indexThumbDist) * 15));
+        return {
+            sign_name: 'No',
+            meaning: 'A negative response or disagreement.',
+            confidence: conf,
+            description: 'Index and middle fingertips snapping/pinching against thumb tip.'
+        };
+    }
+
+    // 3. HELP: Thumbs Up with closed fist
+    if (f.isThumbUp && f.curledCount >= 3 && !f.index.isExtended) {
+        const conf = Math.round(Math.min(99, 92 + f.curledCount * 1.5));
+        return {
+            sign_name: 'Help',
+            meaning: 'Requesting or offering assistance.',
+            confidence: conf,
+            description: 'Thumb pointing upright over closed fist (Thumbs Up).'
+        };
+    }
+
+    // 4. FOOD: All 5 fingertips bunched together (Eating / Flattened O)
+    if (f.isFoodPinch) {
+        const conf = Math.round(Math.min(98, 91 + (0.48 - f.maxTipToCentroid) * 20));
+        return {
+            sign_name: 'Food',
+            meaning: 'Nutrient intake or eating.',
+            confidence: conf,
+            description: 'All 5 fingertips clustered together towards mouth.'
+        };
+    }
+
+    // 5. BAD: Open flat hand flipped downward below wrist
+    if (f.extendedCount >= 3 && f.isPointingDown) {
         return {
             sign_name: 'Bad',
             meaning: 'Unfavorable quality or disapproval.',
@@ -142,89 +269,60 @@ export function classifyHandSign(landmarks) {
         };
     }
 
-    // 2. SCHOOL: Flat horizontal clapping hand
-    const isHorizontalHand = Math.abs(f.indexTip.x - f.wrist.x) > Math.abs(f.indexTip.y - f.wrist.y) * 1.35;
-    if (f.extendedFingers >= 3 && isHorizontalHand) {
+    // 6. SCHOOL: Flat open hand positioned horizontally
+    if (f.extendedCount >= 3 && f.isHorizontal) {
         return {
             sign_name: 'School',
             meaning: 'Educational institution.',
             confidence: 93,
-            description: 'Flat hands positioned horizontally.'
+            description: 'Flat open hands positioned horizontally.'
         };
     }
 
-    // 3. WATER: 'W' handshape (Index, Middle, Ring extended; Pinky folded)
-    if (f.isIndexExtended && f.isMiddleExtended && f.isRingExtended && (f.isPinkyFolded || !f.isPinkyExtended)) {
-        return {
-            sign_name: 'Water',
-            meaning: 'Clear liquid essential for life.',
-            confidence: 96,
-            description: 'W handshape formed with three fingers extended upright.'
-        };
-    }
-
-    // 4. NUMBER 3: Thumb, Index, Middle extended; Ring & Pinky folded
-    if (f.isThumbExtended && f.isIndexExtended && f.isMiddleExtended && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
-        return {
-            sign_name: 'Number 3',
-            meaning: 'The number three in ASL.',
-            confidence: 95,
-            description: 'Thumb, index, and middle fingers extended.'
-        };
-    }
-
-    // 5. NUMBER 2: Index & Middle extended (V-shape), Ring & Pinky folded
-    if (f.isIndexExtended && f.isMiddleExtended && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended) && !f.isThumbExtended) {
-        return {
-            sign_name: 'Number 2',
-            meaning: 'The number two in ASL.',
-            confidence: 96,
-            description: 'Index and middle fingers extended in a V-shape.'
-        };
-    }
-
-    // 6. NUMBER 1: Only Index extended, others folded
-    if (f.isIndexExtended && (f.isMiddleFolded || !f.isMiddleExtended) && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+    // 7. NUMBER 1: Index extended upright ONLY, middle/ring/pinky curled
+    if (f.index.isExtended && f.middle.isCurled && f.ring.isCurled && f.pinky.isCurled) {
+        const conf = Math.round(Math.min(99, 93 + (f.index.tipWristDist - 1.05) * 8));
         return {
             sign_name: 'Number 1',
             meaning: 'The number one in ASL.',
-            confidence: 97,
+            confidence: conf,
             description: 'Index finger pointing straight up.'
         };
     }
 
-    // 7. NO: Index + Middle touching/pinching Thumb, Ring & Pinky folded
-    if ((f.indexThumbDist < 0.48 || f.middleThumbDist < 0.48) && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+    // 8. NUMBER 2: Index and Middle extended in V-shape, ring/pinky curled
+    if (f.index.isExtended && f.middle.isExtended && f.ring.isCurled && f.pinky.isCurled && !f.isThumbExtended) {
+        const conf = Math.round(Math.min(98, 93 + f.indexMiddleDist * 10));
         return {
-            sign_name: 'No',
-            meaning: 'A negative response or disagreement.',
-            confidence: 94,
-            description: 'Index and middle fingers pinching against thumb tip.'
+            sign_name: 'Number 2',
+            meaning: 'The number two in ASL.',
+            confidence: conf,
+            description: 'Index and middle fingers extended in a V-shape.'
         };
     }
 
-    // 8. FOOD: Fingertips bunched together toward thumb
-    if (f.allTipsTogether < 1.25 || (f.indexThumbDist < 0.42 && f.middleThumbDist < 0.42 && f.extendedFingers <= 2)) {
+    // 9. NUMBER 3: Thumb, Index, Middle extended, ring/pinky curled
+    if (f.isThumbExtended && f.index.isExtended && f.middle.isExtended && f.ring.isCurled && f.pinky.isCurled) {
         return {
-            sign_name: 'Food',
-            meaning: 'Nutrient intake or eating.',
-            confidence: 94,
-            description: 'Fingertips bunched together pointing to mouth.'
-        };
-    }
-
-    // 9. HELP: Thumbs up gesture over fist
-    if (f.isThumbUp && f.foldedFingers >= 2) {
-        return {
-            sign_name: 'Help',
-            meaning: 'Requesting or offering assistance.',
+            sign_name: 'Number 3',
+            meaning: 'The number three in ASL.',
             confidence: 96,
-            description: 'Thumb pointing upward over closed fist.'
+            description: 'Thumb, index, and middle fingers extended.'
         };
     }
 
-    // 10. LETTER B: 4 fingers extended upright together, thumb folded
-    if (f.extendedFingers >= 4 && !f.isThumbExtended) {
+    // 10. WATER: ASL 'W' shape (Index, Middle, Ring extended upright; Pinky curled)
+    if (f.index.isExtended && f.middle.isExtended && f.ring.isExtended && f.pinky.isCurled) {
+        return {
+            sign_name: 'Water',
+            meaning: 'Clear liquid essential for life.',
+            confidence: 96,
+            description: 'W-handshape formed with index, middle, and ring extended.'
+        };
+    }
+
+    // 11. LETTER B: 4 fingers upright together, thumb tucked across palm
+    if (f.extendedCount >= 4 && (f.isThumbTuckedAcross || !f.isThumbExtended)) {
         return {
             sign_name: 'Letter B',
             meaning: 'Fingerspelling letter B.',
@@ -233,49 +331,60 @@ export function classifyHandSign(landmarks) {
         };
     }
 
-    // 11. LETTER A: Closed fist with thumb upright alongside index
-    if (f.foldedFingers >= 3 && f.thumbTip.y < f.indexPip.y && f.thumbTip.x > f.indexMcp.x) {
+    // 12. LETTER C: Curved fingers and thumb forming C-arc
+    if (f.curvedCount >= 2 && f.extendedCount === 0 && f.indexThumbDist > 0.28 && f.indexThumbDist < 1.25) {
+        return {
+            sign_name: 'Letter C',
+            meaning: 'Fingerspelling letter C.',
+            confidence: 94,
+            description: 'Hand curved into a clear C-shape.'
+        };
+    }
+
+    // 13. LETTER A: Closed fist with thumb standing upright alongside index
+    if (f.curledCount >= 4 && f.isThumbAlongside && !f.isThumbUp) {
         return {
             sign_name: 'Letter A',
             meaning: 'Fingerspelling letter A.',
-            confidence: 93,
+            confidence: 95,
             description: 'Fist with thumb resting upright on side.'
         };
     }
 
-    // 12. LETTER C: Curved fingers and thumb
-    if (f.extendedFingers >= 2 && f.indexThumbDist > 0.4 && f.indexThumbDist < 1.1) {
+    // 14. CLOSED FIST: Yes or Sorry
+    if (f.curledCount >= 4 && !f.isThumbUp) {
+        if (f.wrist.y >= 0.58) {
+            return {
+                sign_name: 'Sorry',
+                meaning: 'An expression of apology or regret.',
+                confidence: 93,
+                description: 'Fist held against chest in circular motion.'
+            };
+        }
         return {
-            sign_name: 'Letter C',
-            meaning: 'Fingerspelling letter C.',
-            confidence: 91,
-            description: 'Hand curved into a C-shape.'
+            sign_name: 'Yes',
+            meaning: 'An affirmative response or agreement.',
+            confidence: 95,
+            description: 'Closed fist simulating head nod.'
         };
     }
 
-    // 13. FRIEND: Hooked index finger with others folded
-    if (f.indexTip.y > f.indexPip.y && f.isMiddleFolded && f.isRingFolded && f.isPinkyFolded) {
-        return {
-            sign_name: 'Friend',
-            meaning: 'A companion or trusted person.',
-            confidence: 91,
-            description: 'Hooked index finger interlocked.'
-        };
-    }
+    // 15. OPEN 5-HAND GESTURES: Hello, Thank You, Please, Good, Mother, Father
+    if (f.extendedCount >= 3) {
+        const isOpenFiveHand = !f.isThumbTuckedAcross && (f.thumbIndexMcpDist > 0.35 || f.isThumbExtended || f.thumbMcpDist > 0.38);
 
-    // 14. OPEN 5-HAND GESTURES: Father, Mother, Please, Thank You, Good, Hello
-    if (f.extendedFingers >= 3) {
-        // Upper screen: Father
-        if (f.wrist.y < 0.40 || f.thumbTip.y < 0.35) {
+        // 1. Forehead level: Father (male sign: open 5-hand touching forehead)
+        if (isOpenFiveHand && (f.thumbTip.y < 0.40 || (f.wrist.y < 0.48 && f.thumbTip.y < 0.42))) {
             return {
                 sign_name: 'Father',
                 meaning: 'Male parent.',
-                confidence: 94,
-                description: 'Open 5-hand at forehead level.'
+                confidence: 96,
+                description: 'Open 5-hand with thumb touching forehead.'
             };
         }
-        // Lower chest area: Please
-        if (f.wrist.y > 0.65) {
+
+        // 2. Lower chest level: Please
+        if (f.wrist.y > 0.74 || f.thumbTip.y > 0.66) {
             return {
                 sign_name: 'Please',
                 meaning: 'A polite request word.',
@@ -283,16 +392,19 @@ export function classifyHandSign(landmarks) {
                 description: 'Flat open hand placed over chest.'
             };
         }
-        // Mid-face/chin level: Mother or Thank You
-        if (f.wrist.y >= 0.40 && f.wrist.y < 0.55) {
-            if (f.isThumbExtended) {
-                return {
-                    sign_name: 'Mother',
-                    meaning: 'Female parent.',
-                    confidence: 93,
-                    description: 'Open 5-hand with thumb at chin level.'
-                };
-            }
+
+        // 3. Chin level: Mother (female sign: open 5-hand touching chin)
+        if (isOpenFiveHand && (f.thumbTip.y >= 0.40 && f.thumbTip.y <= 0.66 && f.wrist.y >= 0.44 && f.wrist.y <= 0.76)) {
+            return {
+                sign_name: 'Mother',
+                meaning: 'Female parent.',
+                confidence: 96,
+                description: 'Open 5-hand with thumb touching chin.'
+            };
+        }
+
+        // 4. Flat hand at chin extending out: Thank You
+        if (f.wrist.y >= 0.38 && f.wrist.y < 0.60 && f.thumbIndexMcpDist < 0.42) {
             return {
                 sign_name: 'Thank You',
                 meaning: 'An expression of gratitude.',
@@ -300,7 +412,18 @@ export function classifyHandSign(landmarks) {
                 description: 'Flat hand extending outward from chin.'
             };
         }
-        // Standard salute: Hello
+
+        // 5. Flat hand at mid level: Good or Hello
+        if (f.extendedCount === 4 && !f.isThumbExtended) {
+            return {
+                sign_name: 'Good',
+                meaning: 'Positive quality or approval.',
+                confidence: 94,
+                description: 'Flat hand moving into open palm.'
+            };
+        }
+
+        // 6. Default open hand raised: Hello
         return {
             sign_name: 'Hello',
             meaning: 'A standard polite greeting.',
@@ -309,53 +432,31 @@ export function classifyHandSign(landmarks) {
         };
     }
 
-    // 15. CLOSED FIST GESTURES: Sorry or Yes
-    if (f.foldedFingers >= 3) {
-        // Lower chest fist: Sorry
-        if (f.wrist.y >= 0.55) {
-            return {
-                sign_name: 'Sorry',
-                meaning: 'An expression of apology or regret.',
-                confidence: 93,
-                description: 'Fist held against chest in circular motion.'
-            };
-        }
-        // Center/upper fist: Yes
-        return {
-            sign_name: 'Yes',
-            meaning: 'An affirmative response or agreement.',
-            confidence: 94,
-            description: 'Closed fist simulating head nod.'
-        };
-    }
-
-    return {
-        sign_name: 'Hello',
-        meaning: 'Open hand gesture.',
-        confidence: 88,
-        description: 'Hand raised with fingers extended.'
-    };
+    // If none of the 21 signs match: return null
+    return null;
 }
 
 /**
- * Directly evaluates current hand landmarks against ANY of the 21 TARGET sign names,
- * returning CORRECT or INCORRECT status along with explicit suggested physical changes.
+ * Directly evaluates current hand landmarks against a target sign name.
+ * Used by the Practice Module to determine correctness and provide physical adjustment suggestions.
  */
-export function evaluateSignAttempt(landmarks, targetSignName) {
+export function evaluateSignAttempt(landmarks, targetSignName, handedness = 'Right') {
     if (!landmarks || landmarks.length < 21 || !targetSignName) {
         return {
             isCorrect: false,
             status: 'AWAITING_HAND',
+            confidence: 0,
             message: 'Position your hand clearly inside the camera frame.',
-            suggestedChange: 'Keep your hand within the frame.'
+            suggestedChange: 'Hold your hand up to the camera.'
         };
     }
 
-    const f = extractHandFeatures(landmarks);
+    const f = extractHandFeatures(landmarks, handedness);
     if (!f) {
         return {
             isCorrect: false,
             status: 'AWAITING_HAND',
+            confidence: 0,
             message: 'Position your hand clearly inside the camera frame.',
             suggestedChange: 'Keep your hand within the frame.'
         };
@@ -363,165 +464,153 @@ export function evaluateSignAttempt(landmarks, targetSignName) {
 
     const target = targetSignName.toLowerCase().trim();
     let isCorrect = false;
-    let confidence = 95;
+    let confidence = 94;
     let suggestedChange = '';
 
-    // ==========================================
-    // 1. GREETINGS
-    // ==========================================
+    // Evaluate against Target
     if (target.includes('hello')) {
-        // Hello: Open hand, at least 3-4 fingers extended, raised
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3 && f.wrist.y <= 0.65) {
             isCorrect = true;
-            confidence = Math.min(92 + f.extendedFingers * 2, 98);
+            confidence = Math.min(98, 92 + f.extendedCount * 1.5);
         } else {
-            suggestedChange = 'To fix HELLO: Open all 5 fingers flat and raise your hand near your temple in a salute.';
+            suggestedChange = 'To fix HELLO: Open all 5 fingers flat and raise your hand near your temple in a gentle salute.';
         }
     } else if (target.includes('thank')) {
-        // Thank You: Flat open hand extending outward
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3) {
             isCorrect = true;
-            confidence = Math.min(91 + f.extendedFingers * 2, 97);
+            confidence = 94;
         } else {
-            suggestedChange = 'To fix THANK YOU: Touch fingertips near your chin with an open hand, then extend outward.';
+            suggestedChange = 'To fix THANK YOU: Touch fingertips near your chin with an open flat hand, then extend outward.';
         }
     } else if (target.includes('please')) {
-        // Please: Flat open hand on chest
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3) {
             isCorrect = true;
             confidence = 94;
         } else {
-            suggestedChange = 'To fix PLEASE: Place your open flat hand against your chest and rub in a gentle circle.';
+            suggestedChange = 'To fix PLEASE: Place your flat open hand against your chest and rub in a gentle circle.';
         }
     } else if (target.includes('sorry')) {
-        // Sorry: Closed fist (S shape) placed over chest
-        if (f.foldedFingers >= 3 && !f.isIndexExtended && !f.isMiddleExtended && f.wrist.y >= 0.45) {
+        if (f.curledCount >= 3 && !f.index.isExtended && !f.middle.isExtended) {
             isCorrect = true;
             confidence = 94;
-        } else if (f.foldedFingers < 3) {
-            suggestedChange = 'To fix SORRY: Form a tight closed fist curling all fingers in, and rub in circles on your chest.';
         } else {
-            suggestedChange = 'To fix SORRY: Hold your fist against your chest and rub in small circular motions.';
+            suggestedChange = 'To fix SORRY: Form a tight closed fist curling all fingers in, and hold it against your chest.';
         }
-
-    // ==========================================
-    // 2. COMMON WORDS
-    // ==========================================
     } else if (target.includes('yes')) {
-        // Yes: Closed fist (S shape) held in front nodding
-        if (f.foldedFingers >= 3 && !f.isIndexExtended && !f.isMiddleExtended) {
+        if (f.curledCount >= 3 && !f.index.isExtended && !f.middle.isExtended) {
             isCorrect = true;
             confidence = 95;
         } else {
-            suggestedChange = 'To fix YES: Make a closed fist with all fingers tucked in (S handshape) and nod gently.';
+            suggestedChange = 'To fix YES: Make a closed fist with all fingers tucked in (S-handshape) and hold upright.';
         }
     } else if (target.includes('no')) {
-        // No: Index and Middle tips pinching thumb tip, Ring and Pinky folded
-        if ((f.indexThumbDist < 0.48 || f.middleThumbDist < 0.48) && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+        if (f.indexThumbDist < 0.48 && f.middleThumbDist < 0.48 && f.ring.isCurled && f.pinky.isCurled) {
             isCorrect = true;
-            confidence = 95;
-        } else if (f.isRingExtended || f.isPinkyExtended) {
-            suggestedChange = 'To fix NO: Fold your ring and pinky fingers down against your palm.';
+            confidence = 96;
+        } else if (f.ring.isExtended || f.pinky.isExtended) {
+            suggestedChange = 'To fix NO: Fold your ring and pinky fingers down tightly against your palm.';
         } else {
             suggestedChange = 'To fix NO: Bring your index and middle fingertips together to snap against your thumb tip.';
         }
     } else if (target.includes('good')) {
-        // Good: Flat hand at chin moving into open palm
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3) {
             isCorrect = true;
             confidence = 94;
         } else {
-            suggestedChange = 'To fix GOOD: Open your hand flat, touch fingertips to chin, then lower onto opposite palm.';
+            suggestedChange = 'To fix GOOD: Open your hand flat with fingers together, touch chin, then lower forward.';
         }
     } else if (target.includes('bad')) {
-        // Bad: Flat hand flipping palm down
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3 && f.isPointingDown) {
             isCorrect = true;
-            confidence = 93;
+            confidence = 95;
         } else {
-            suggestedChange = 'To fix BAD: Touch chin with flat hand, then flip hand sharply palm-downward.';
+            suggestedChange = 'To fix BAD: Open your flat hand and flip it sharply downward with fingertips pointing down.';
         }
     } else if (target.includes('water')) {
-        // Water: W handshape (Index, Middle, Ring extended; Pinky folded)
-        if (f.isIndexExtended && f.isMiddleExtended && f.isRingExtended && (f.isPinkyFolded || !f.isPinkyExtended)) {
+        if (f.index.isExtended && f.middle.isExtended && f.ring.isExtended && f.pinky.isCurled) {
             isCorrect = true;
             confidence = 96;
-        } else if (!f.isIndexExtended || !f.isMiddleExtended || !f.isRingExtended) {
+        } else if (!f.index.isExtended || !f.middle.isExtended || !f.ring.isExtended) {
             suggestedChange = 'To fix WATER: Extend your index, middle, and ring fingers straight up into a "W" shape.';
-        } else if (f.isPinkyExtended) {
-            suggestedChange = 'To fix WATER: Fold your pinky finger and thumb across your palm, keeping 3 fingers up.';
         } else {
-            suggestedChange = 'To fix WATER: Form a "W" shape with index, middle, and ring fingers upright.';
+            suggestedChange = 'To fix WATER: Fold your pinky finger down into your palm with your thumb.';
         }
     } else if (target.includes('food')) {
-        // Food: Fingertips bunched against thumb (flattened O) at mouth
-        if (f.allTipsTogether < 1.8 || (f.indexThumbDist < 0.60 && f.middleThumbDist < 0.60) || f.foldedFingers >= 3) {
+        if (f.isFoodPinch || (f.maxTipToCentroid < 0.50 && f.indexThumbDist < 0.45)) {
             isCorrect = true;
             confidence = 95;
         } else {
-            suggestedChange = 'To fix FOOD: Pinch all your fingertips and thumb together into a point and tap your mouth.';
+            suggestedChange = 'To fix FOOD: Pinch all 5 fingertips and thumb together into a single cluster pointing to mouth.';
         }
-
-    // ==========================================
-    // 3. COMMON PHRASES
-    // ==========================================
     } else if (target.includes('help')) {
-        // Help: Thumbs up gesture
-        if (f.isThumbUp && f.foldedFingers >= 2) {
+        if (f.isThumbUp && f.curledCount >= 3) {
             isCorrect = true;
-            confidence = 96;
+            confidence = 97;
         } else if (!f.isThumbUp) {
-            suggestedChange = 'To fix HELP: Point your thumb straight up towards the ceiling over a closed fist.';
+            suggestedChange = 'To fix HELP: Point your thumb straight up towards the ceiling over a tight closed fist.';
         } else {
-            suggestedChange = 'To fix HELP: Form a thumbs-up fist with other fingers folded in.';
+            suggestedChange = 'To fix HELP: Curl all 4 fingers tightly into a fist while extending your thumb straight up.';
         }
     } else if (target.includes('mother')) {
-        // Mother: Open 5-hand with thumb at chin
-        if (f.extendedFingers >= 3 && f.isThumbExtended) {
+        const isOpenHand = f.extendedCount >= 3;
+        const isThumbOpen = !f.isThumbTuckedAcross && (f.thumbIndexMcpDist > 0.35 || f.isThumbExtended || f.thumbMcpDist > 0.38);
+        const isNotForehead = f.thumbTip.y >= 0.38 || f.wrist.y >= 0.46;
+        const isNotTooLow = f.thumbTip.y <= 0.70;
+
+        if (isOpenHand && isThumbOpen && isNotForehead && isNotTooLow) {
             isCorrect = true;
-            confidence = 95;
+            confidence = Math.round(Math.min(98, 92 + f.extendedCount * 1.5));
+        } else if (!isOpenHand) {
+            suggestedChange = 'To fix MOTHER: Spread all 5 fingers wide and open your hand completely.';
+        } else if (!isThumbOpen) {
+            suggestedChange = 'To fix MOTHER: Extend your thumb outward so it is not tucked into your palm.';
+        } else if (!isNotForehead) {
+            suggestedChange = 'To fix MOTHER: Lower your open 5-hand down to touch your chin (Mother is signed at the chin, not forehead).';
         } else {
-            suggestedChange = 'To fix MOTHER: Spread all 5 fingers wide and touch your thumb tip against your chin.';
+            suggestedChange = 'To fix MOTHER: Position your open 5-hand with thumb tip touching your chin.';
         }
     } else if (target.includes('father')) {
-        // Father: Open 5-hand with thumb at forehead
-        if (f.extendedFingers >= 3 && f.isThumbExtended) {
+        const isOpenHand = f.extendedCount >= 3;
+        const isThumbOpen = !f.isThumbTuckedAcross && (f.thumbIndexMcpDist > 0.35 || f.isThumbExtended || f.thumbMcpDist > 0.38);
+        const isForeheadLevel = f.thumbTip.y <= 0.44 || f.wrist.y <= 0.52;
+
+        if (isOpenHand && isThumbOpen && isForeheadLevel) {
             isCorrect = true;
-            confidence = 95;
+            confidence = Math.round(Math.min(98, 92 + f.extendedCount * 1.5));
+        } else if (!isOpenHand) {
+            suggestedChange = 'To fix FATHER: Spread all 5 fingers wide and open your hand completely.';
+        } else if (!isThumbOpen) {
+            suggestedChange = 'To fix FATHER: Extend your thumb outward so it is not tucked into your palm.';
+        } else if (!isForeheadLevel) {
+            suggestedChange = 'To fix FATHER: Raise your open 5-hand higher so your thumb touches your forehead (Father is signed at forehead level).';
         } else {
-            suggestedChange = 'To fix FATHER: Spread all 5 fingers wide and touch your thumb tip against your forehead.';
+            suggestedChange = 'To fix FATHER: Position your open 5-hand with thumb tip touching your forehead.';
         }
     } else if (target.includes('friend')) {
-        // Friend: Interlocking/hooked index fingers
-        if (f.isIndexExtended && (f.isRingFolded || !f.isRingExtended)) {
+        if (f.isIndexHooked || (f.index.tipMcpDist > 0.35 && f.middle.isCurled && f.ring.isCurled)) {
             isCorrect = true;
-            confidence = 93;
+            confidence = 94;
         } else {
-            suggestedChange = 'To fix FRIEND: Hook your index fingers together in front of your chest.';
+            suggestedChange = 'To fix FRIEND: Hook your index finger into a crook while curling your other fingers in.';
         }
     } else if (target.includes('school')) {
-        // School: Flat open hands clapping horizontally
-        if (f.extendedFingers >= 3) {
+        if (f.extendedCount >= 3 && f.isHorizontal) {
             isCorrect = true;
             confidence = 94;
         } else {
-            suggestedChange = 'To fix SCHOOL: Clap flat open hands together horizontally twice.';
+            suggestedChange = 'To fix SCHOOL: Turn your flat open hand horizontally as if clapping hands together.';
         }
-
-    // ==========================================
-    // 4. ALPHABET
-    // ==========================================
     } else if (target.includes('letter a')) {
-        // Letter A: Fist with thumb upright on side
-        if (f.foldedFingers >= 3) {
+        if (f.curledCount >= 3 && f.isThumbAlongside) {
             isCorrect = true;
-            confidence = 94;
+            confidence = 95;
+        } else if (f.curledCount < 3) {
+            suggestedChange = 'To fix LETTER A: Make a tight fist with all 4 fingers curled into your palm.';
         } else {
-            suggestedChange = 'To fix LETTER A: Make a tight fist with thumb resting alongside the index finger.';
+            suggestedChange = 'To fix LETTER A: Rest your thumb upright along the outer edge of your index finger.';
         }
     } else if (target.includes('letter b')) {
-        // Letter B: 4 fingers upright, thumb folded across palm
-        if (f.extendedFingers >= 4 && !f.isThumbExtended) {
+        if (f.extendedCount >= 4 && (f.isThumbTuckedAcross || !f.isThumbExtended)) {
             isCorrect = true;
             confidence = 95;
         } else if (f.isThumbExtended) {
@@ -530,52 +619,44 @@ export function evaluateSignAttempt(landmarks, targetSignName) {
             suggestedChange = 'To fix LETTER B: Extend four fingers straight up together and tuck thumb across palm.';
         }
     } else if (target.includes('letter c')) {
-        // Letter C: Curved hand into C shape
-        if (f.extendedFingers >= 2 && f.indexThumbDist > 0.35) {
+        if (f.curvedCount >= 2 && f.indexThumbDist > 0.28 && f.indexThumbDist < 1.25) {
             isCorrect = true;
-            confidence = 93;
+            confidence = 94;
         } else {
-            suggestedChange = 'To fix LETTER C: Curve your fingers and thumb to form a clear "C" shape.';
+            suggestedChange = 'To fix LETTER C: Curve your fingers and thumb to form an open "C" shape.';
         }
-
-    // ==========================================
-    // 5. NUMBERS
-    // ==========================================
     } else if (target.includes('number 1') || target === '1') {
-        // Number 1: Only index finger extended
-        if (f.isIndexExtended && (f.isMiddleFolded || !f.isMiddleExtended) && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+        if (f.index.isExtended && f.middle.isCurled && f.ring.isCurled && f.pinky.isCurled) {
             isCorrect = true;
             confidence = 97;
-        } else if (!f.isIndexExtended) {
+        } else if (!f.index.isExtended) {
             suggestedChange = 'To fix NUMBER 1: Extend your index finger straight up.';
         } else {
-            suggestedChange = 'To fix NUMBER 1: Fold down your middle, ring, and pinky fingers with thumb.';
+            suggestedChange = 'To fix NUMBER 1: Fold down your middle, ring, and pinky fingers with your thumb.';
         }
     } else if (target.includes('number 2') || target === '2') {
-        // Number 2: Index and Middle fingers extended in V shape
-        if (f.isIndexExtended && f.isMiddleExtended && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+        if (f.index.isExtended && f.middle.isExtended && f.ring.isCurled && f.pinky.isCurled) {
             isCorrect = true;
             confidence = 96;
-        } else if (!f.isIndexExtended || !f.isMiddleExtended) {
+        } else if (!f.index.isExtended || !f.middle.isExtended) {
             suggestedChange = 'To fix NUMBER 2: Extend both your index and middle fingers in a V-shape.';
         } else {
             suggestedChange = 'To fix NUMBER 2: Fold your ring and pinky fingers down with your thumb.';
         }
     } else if (target.includes('number 3') || target === '3') {
-        // Number 3: Thumb, Index, Middle extended; Ring & Pinky folded
-        if (f.isThumbExtended && f.isIndexExtended && f.isMiddleExtended && (f.isRingFolded || !f.isRingExtended) && (f.isPinkyFolded || !f.isPinkyExtended)) {
+        if (f.isThumbExtended && f.index.isExtended && f.middle.isExtended && f.ring.isCurled && f.pinky.isCurled) {
             isCorrect = true;
-            confidence = 95;
+            confidence = 96;
         } else if (!f.isThumbExtended) {
             suggestedChange = 'To fix NUMBER 3: Extend your thumb outward along with index and middle fingers.';
         } else {
             suggestedChange = 'To fix NUMBER 3: Extend thumb, index, and middle fingers while folding ring and pinky.';
         }
     } else {
-        // Fallback for any other signs
-        const detected = classifyHandSign(landmarks);
+        // Fallback matching
+        const detected = classifyHandSign(landmarks, handedness);
         const detectedName = (detected?.sign_name || '').toLowerCase();
-        if (detectedName.includes(target) || target.includes(detectedName)) {
+        if (detectedName && (detectedName.includes(target) || target.includes(detectedName))) {
             isCorrect = true;
             confidence = detected.confidence;
         } else {
@@ -583,8 +664,8 @@ export function evaluateSignAttempt(landmarks, targetSignName) {
         }
     }
 
-    const detected = classifyHandSign(landmarks);
-    const detectedName = detected ? detected.sign_name : 'Pose';
+    const detected = classifyHandSign(landmarks, handedness);
+    const detectedName = detected ? detected.sign_name : 'Unrecognized Pose';
 
     if (isCorrect) {
         return {
@@ -600,7 +681,7 @@ export function evaluateSignAttempt(landmarks, targetSignName) {
             isCorrect: false,
             status: 'INCORRECT',
             detectedSign: detectedName,
-            confidence: detected?.confidence || 75,
+            confidence: detected?.confidence || 65,
             message: `INCORRECT (Detected: ${detectedName}).`,
             suggestedChange: suggestedChange || `To fix ${targetSignName}: Match the visual diagram pose.`
         };

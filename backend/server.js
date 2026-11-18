@@ -22,6 +22,7 @@ const translationRoutes = require('./routes/translationRoutes');
 const practiceRoutes = require('./routes/practiceRoutes');
 const progressRoutes = require('./routes/progressRoutes');
 const userRoutes = require('./routes/userRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 // API Health Check
 app.get('/api/health', (req, res) => {
@@ -41,6 +42,7 @@ app.use('/api/translations', translationRoutes);
 app.use('/api/practice', practiceRoutes);
 app.use('/api', progressRoutes);
 app.use('/api', userRoutes);
+app.use('/api/ai', aiRoutes);
 
 // 404 Route Handler
 app.use((req, res) => {

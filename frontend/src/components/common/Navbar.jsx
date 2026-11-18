@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Hand, Menu, X, LogOut, User, LayoutDashboard, BookOpen, Camera, Award, History, Info } from 'lucide-react';
+import { useFeatures } from '../../context/FeatureContext';
+import { Hand, Menu, X, LogOut, User, LayoutDashboard, BookOpen, Camera, Award, History, Info, Sliders, Zap } from 'lucide-react';
 
 export default function Navbar() {
     const { isAuthenticated, user, logout } = useAuth();
+    const { features, openSettingsModal } = useFeatures();
     const navigate = useNavigate();
     const location = useLocation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -61,10 +63,27 @@ export default function Navbar() {
                         <RouterLink to="/about" className={navLinkClass('/about')}>
                             <Info className="w-4 h-4" /> About
                         </RouterLink>
+                        {features.signRush && (
+                            <RouterLink to="/rush" className={navLinkClass('/rush')}>
+                                <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Sign Rush
+                            </RouterLink>
+                        )}
                     </nav>
 
-                    {/* Auth User Action */}
-                    <div className="hidden md:flex items-center gap-3">
+                    {/* Auth User Action & Feature Settings */}
+                    <div className="hidden md:flex items-center gap-2">
+                        {/* Feature Settings Modal Trigger */}
+                        <button
+                            type="button"
+                            onClick={openSettingsModal}
+                            className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors relative"
+                            title="Feature Activation Settings (Control optional modules)"
+                        >
+                            <Sliders className="w-4 h-4" />
+                            {(features.signBot || features.signRush) && (
+                                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+                            )}
+                        </button>
                         {isAuthenticated ? (
                             <div className="flex items-center gap-3">
                                 <RouterLink to="/profile" className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-medium transition-colors bg-slate-50">
@@ -137,6 +156,24 @@ export default function Navbar() {
                     <RouterLink to="/about" onClick={() => setMobileMenuOpen(false)} className={navLinkClass('/about')}>
                         About
                     </RouterLink>
+                    {features.signRush && (
+                        <RouterLink to="/rush" onClick={() => setMobileMenuOpen(false)} className={navLinkClass('/rush')}>
+                            <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Sign Rush ⚡
+                        </RouterLink>
+                    )}
+                    <button
+                        onClick={() => { setMobileMenuOpen(false); openSettingsModal(); }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center justify-between"
+                    >
+                        <span className="flex items-center gap-1.5">
+                            <Sliders className="w-4 h-4 text-indigo-600" /> Feature Settings
+                        </span>
+                        {(features.signBot || features.signRush) && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                Active
+                            </span>
+                        )}
+                    </button>
 
                     <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
                         {isAuthenticated ? (

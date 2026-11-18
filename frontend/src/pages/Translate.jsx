@@ -31,6 +31,7 @@ export default function Translate() {
     const [error, setError] = useState('');
     const [signsList, setSignsList] = useState([]);
     const [isStepModalOpen, setIsStepModalOpen] = useState(false);
+    const [unrecognizedHand, setUnrecognizedHand] = useState(false);
     
     // Auto-save stability tracking
     const lastSavedSignRef = useRef('');
@@ -67,45 +68,55 @@ export default function Translate() {
         if (!result) {
             setCurrentPrediction(null);
             setEvaluation(null);
+            setUnrecognizedHand(false);
             stabilityCounterRef.current = { sign: '', count: 0 };
             return;
         }
 
         // 1. In Live Auto-Translate Mode:
         if (mode === 'auto') {
-            const detectedName = result.sign_name;
-            const matched = signsList.find(s => s.sign_name.toLowerCase() === detectedName.toLowerCase()) || {};
-            const pred = {
-                ...result,
-                sign_name: detectedName,
-                meaning: matched.meaning || result.meaning || `Detected gesture: ${detectedName}`,
-                confidence: result.confidence || 94
-            };
-            setCurrentPrediction(pred);
-            setEvaluation(null);
+            if (result.sign_name) {
+                const detectedName = result.sign_name;
+                const matched = signsList.find(s => s.sign_name.toLowerCase() === detectedName.toLowerCase()) || {};
+                const pred = {
+                    ...result,
+                    sign_name: detectedName,
+                    meaning: matched.meaning || result.meaning || `Detected gesture: ${detectedName}`,
+                    confidence: result.confidence || 94
+                };
+                setCurrentPrediction(pred);
+                setUnrecognizedHand(false);
+                setEvaluation(null);
 
-            // Stability check for auto-save: require 3 consecutive frames of same sign
-            if (stabilityCounterRef.current.sign === detectedName) {
-                stabilityCounterRef.current.count += 1;
-                if (stabilityCounterRef.current.count >= 3 && lastSavedSignRef.current !== detectedName) {
-                    triggerAutoSave(detectedName, pred.confidence, pred.meaning);
+                // Stability check for auto-save: require 3 consecutive frames of same sign
+                if (stabilityCounterRef.current.sign === detectedName) {
+                    stabilityCounterRef.current.count += 1;
+                    if (stabilityCounterRef.current.count >= 3 && lastSavedSignRef.current !== detectedName) {
+                        triggerAutoSave(detectedName, pred.confidence, pred.meaning);
+                    }
+                } else {
+                    stabilityCounterRef.current = { sign: detectedName, count: 1 };
                 }
-            } else {
-                stabilityCounterRef.current = { sign: detectedName, count: 1 };
+            } else if (result.landmarks) {
+                // Hand in frame but unrecognized sign
+                setCurrentPrediction(null);
+                setUnrecognizedHand(true);
+                stabilityCounterRef.current = { sign: '', count: 0 };
             }
         } 
         // 2. In Target Practice Mode:
         else {
             if (result.landmarks) {
-                const evalResult = evaluateSignAttempt(result.landmarks, targetSign);
+                const evalResult = evaluateSignAttempt(result.landmarks, targetSign, result.handedness);
                 setEvaluation(evalResult);
+                setUnrecognizedHand(false);
 
                 const matched = signsList.find(s => s.sign_name.toLowerCase() === targetSign.toLowerCase()) || {};
                 const resolvedPred = {
                     ...result,
-                    sign_name: evalResult.isCorrect ? targetSign : result.sign_name,
+                    sign_name: evalResult.isCorrect ? targetSign : (evalResult.detectedSign || 'Unrecognized Pose'),
                     meaning: matched.meaning || result.meaning,
-                    confidence: evalResult.isCorrect ? evalResult.confidence : (result.confidence || 85)
+                    confidence: evalResult.isCorrect ? evalResult.confidence : (evalResult.confidence || 65)
                 };
                 setCurrentPrediction(resolvedPred);
 
@@ -161,6 +172,7 @@ export default function Translate() {
     const handleClear = () => {
         setCurrentPrediction(null);
         setEvaluation(null);
+        setUnrecognizedHand(false);
         setSavedStatus('');
         setError('');
         lastSavedSignRef.current = '';
@@ -425,6 +437,16 @@ export default function Translate() {
                                         <span>{isSaving ? 'Saving...' : 'Save to DB'}</span>
                                     </Button>
                                 </div>
+                            </div>
+                        ) : unrecognizedHand ? (
+                            <div className="text-center py-12 px-4 space-y-3 animate-in fade-in">
+                                <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-500 border border-amber-200 flex items-center justify-center mx-auto">
+                                    <AlertCircle className="w-6 h-6" />
+                                </div>
+                                <h4 className="text-sm font-bold text-slate-800">Sign Not Recognized</h4>
+                                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                                    Hand detected, but the gesture was not recognized as one of the 21 supported signs. Try holding a steady, clear sign pose (e.g. Water, Hello, Number 1, Help, Food).
+                                </p>
                             </div>
                         ) : (
                             <div className="text-center py-12 px-4 space-y-3">
